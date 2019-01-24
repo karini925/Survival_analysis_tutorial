@@ -1,0 +1,240 @@
+---
+title: "Introduction to Survival Analaysis in R - Part 1"
+output: 
+  html_notebook: 
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+First we will cover the log-rank test and how to make Kaplan-Meier plots for visualizing survival curves.
+We will begin by using the Ovarian dataset in the survival package
+
+```{r}
+library(data.table)
+library(survival)
+library(ggplot2)
+library(survminer)
+library(MASS)
+library(Hmisc)
+library(ggpubr)
+library(tidyverse)
+```
+
+```{r}
+data(ovarian) 
+head(ovarian)
+# Survival in a randomised trial comparing two treatments for ovarian cancer
+#futime: survival or censoring time
+#fustat: censoring status
+#age: in years
+#resid.ds: residual disease present (1=no,2=yes)
+#rx: treatment group
+#ecog.ps: ECOG performance status (1 is better, see reference)
+```
+
+###KM Survival plots and the Log-rank test 
+
+1. Use survfit() to compute survival curves, specifically survival probability by rx 
+survfit() takes two main argumenets: (A) = Surv() survival object & (B) = data set with variables of interest 
+
+```{r}
+fit = survfit(Surv(futime, fustat) ~ rx, data = ovarian)
+print(fit)
+summary(fit)
+summary(fit)$table
+#n = total number of patients in each curve
+#time = time points 
+#n.risk: the number of subjects at risk at time t
+#n.event: the number of events that occurred at time t.
+#n.censor: the number of censored subjects, who exit the risk set, without an event, at time t.
+```
+
+####Visualzing survival curves 
+Now we will use the Survminer package and the ggsurvplot() function to generate survival curves for comparing two groups. 
+We can also add the Log-Rank p-value to the plot 
+
+1. Just survival curves 
+```{r}
+ggsurvplot(fit)
+```
+
+2. Add confidence intervals 
+```{r}
+ggsurvplot(fit, conf.int=TRUE)
+```
+
+3. Add log-rank pvalue
+```{r}
+ggsurvplot(fit, pval=TRUE)
+```
+
+4. Add risk-table
+```{r}
+ggsurvplot(fit, pval=TRUE, risk.table=TRUE)
+```
+
+5. Visualize Median Survival in the two groups
+```{r}
+ggsurvplot(fit, pval=TRUE, risk.table=TRUE, surv.median.line="hv")
+```
+
+###Another example using lung cancer data
+```{r}
+fit <- survfit(Surv(time, status) ~ sex, data = lung)
+summary(fit)$table
+```
+
+```{r}
+ggsurvplot(fit,
+          pval = TRUE, conf.int = TRUE,
+          risk.table = TRUE,
+          risk.table.col = "strata", # Change risk table color by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_bw())
+```
+
+The plot can be further customized:
+
+```{r}
+ggsurvplot(
+   fit,                     
+   pval = TRUE,             
+   conf.int = TRUE,        
+   conf.int.style = "step", 
+   xlab = "Time in days",  
+   break.time.by = 200,    
+   ggtheme = theme_light(),
+   risk.table = "abs_pct",  # absolute number and percentage at risk.
+   risk.table.y.text.col = T,
+   risk.table.y.text = FALSE,# show bars instead of names in text annotations
+   ncensor.plot = TRUE,      # plot the number of censored subjects at time t
+   surv.median.line = "hv",  # add the median survival pointer.
+   legend.labs = c("Male", "Female"))
+```
+
+We can look at median survival times 
+```{r}
+summary(fit)$table
+```
+
+Finally the ends of the survival cuves often have very wide confidence intervals as there are usually patients that are lost to follow-up or alve at the end. We can choosen to shorten the plots:
+
+```{r}
+ggsurvplot(fit,
+          conf.int = TRUE,
+          risk.table.col = "strata", # Change risk table color by groups
+          ggtheme = theme_bw(), # Change ggplot2 theme
+          xlim = c(0, 600))
+```
+
+Alternatively we can transform the way we want to view the probabilities on the y-axis
+1. We can plot cumulative events 
+```{r}
+ggsurvplot(fit,
+          conf.int = TRUE,
+          risk.table.col = "strata", 
+          ggtheme = theme_bw(), 
+          fun = "event")
+```
+
+2. We can plot cumulative hazard to estimate hazard (rather than survival probability) where H(t) = -log(S(t)). H(t) corresponds to the number of events that would be expected for each individual by time t if the event were a repeatable process. The more time goes by, the more events are expected to occur
+
+```{r}
+ggsurvplot(fit,
+          conf.int = TRUE,
+          risk.table.col = "strata", # Change risk table color by groups
+          ggtheme = theme_bw(), # Change ggplot2 theme
+          fun = "cumhaz")
+```
+
+Let's look at the summary of our survival curves using the survminer package
+
+```{r}
+res.sum <- surv_summary(fit)
+head(res.sum)
+```
+
+###Log-Rank Test
+survdiff() can be used to compute log-rank test to compare two or more survival curves.
+```{r}
+surv_diff <- survdiff(Surv(time, status) ~ sex, data = lung)
+surv_diff
+```
+
+###Fit more complex survival curves 
+Now, using the colon dataset we will fit a model with multiple variables 
+```{r}
+fit2 <- survfit(Surv(time, status) ~ sex + rx + adhere, data = colon)
+summary(fit2)$table
+```
+
+How would we visualize all these different combinations? We can use facets  
+```{r}
+ggsurv <- ggsurvplot(fit2, fun = "event", conf.int = TRUE, ggtheme = theme_bw())
+```
+
+```{r}
+ggsurv$plot +theme_bw() + theme (legend.position = "right") + facet_grid(rx ~ adhere)
+```
+
+Instead of looking at cumulative event let's go back to survival probability 
+```{r}
+ggsurv <- ggsurvplot(fit2, conf.int = TRUE, ggtheme = theme_bw())
+ggsurv$plot +theme_bw() + theme (legend.position = "right") + facet_grid(rx ~ adhere)
+```
+
+Instead of faceting by adherence to other organs (adhere variable), let's facet by sex and treatment type (rx). Here we can visualize if there are differences within sexes. 
+
+```{r}
+ggsurv$plot +theme_bw() + theme (legend.position = "right") + facet_grid(rx ~ sex)
+```
+
+###Can we add p-values to individual plots? 
+Yes but we will need to use some additional code (survminer package currently working on setting up this functionality)
+
+```{r}
+# Survival curves
+fit <- survfit( Surv(time, status) ~ sex + rx + adhere, data = colon )
+
+ggsurv1 <- ggsurvplot(fit, ggtheme = theme_bw()) %>% .$plot + facet_grid(rx ~ adhere, labeller=label_both)
+
+# Create a nested data
+nested_data <- colon %>% 
+  group_by(rx, adhere) %>% 
+  nest()
+
+# Compute survdiff on each subset
+# Helper function
+surv_diff<- function(df){
+  sdiff <- survdiff(Surv(time, status) ~ sex, data = df)
+  pvalue <- pchisq(sdiff$chisq, length(sdiff$n) - 1, lower.tail = FALSE)
+  pvalue
+}
+
+nested_data <- nested_data %>%
+  mutate(pval = map_dbl(nested_data$data, surv_diff)) 
+
+# Pvalues of each panel
+pvals <- nested_data %>% dplyr::select(rx, adhere, pval)
+# Add pval coordinate
+pvals <- pvals %>% 
+  mutate(x = 600, y = 0.25)
+
+# Add pvalues to each panel
+ggsurv2 <- ggsurv1 +
+  geom_text(data=pvals, aes(x=x, y=y,
+                            label = paste('P-value:', format.pval(pval, digits=1))))
+
+# final plot
+ggsurv2
+```
+
+Can we facet by sex and adhere while plotting the curves by treatment?
+
+```{r}
+ggsurv <- ggsurvplot(fit2, ggtheme = theme_bw())
+ggsurv$plot +theme_bw() + theme (legend.position = "right") + facet_grid(sex ~ adhere)
+```
+
+You can use the chunk of code from above to get individual pvalues for each facet, you would just need to change the variable names to indicate that we are faceting on sex and adhere. 

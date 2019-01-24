@@ -1,0 +1,220 @@
+---
+title: "Introduction to Survival Analaysis in R - Part 2"
+output: 
+  html_notebook: 
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+chunk_output_type: console
+---
+
+###We will now move on from the log-rank test and KM plots to the Cox Proportional Hazards Regression 
+
+```{r}
+library(tidyverse)
+library(data.table)
+library(survival)
+library(ggplot2)
+library(survminer)
+library(MASS)
+library(Hmisc)
+library(ggpubr)
+```
+
+
+###The Cox Proportional-Hazards Model 
+```{r}
+args(coxph)
+```
+
+When dealing with just right-censored  data,  we have Surv(time, event), where time is either the event time or the censoring time, and event is a dummy variable coded 1 if the event is observed or 0 if the observation is censored
+
+```{r}
+rossi = read.table("Rossi_Data_arrest.txt", header=T)
+rossi[1:5, 1:10]
+#"The data pertain to 432 convicts who were released from Maryland state prisons in the 1970s and who were followed up for one year after release. Half the released convicts were assigned at random to an experimental treatment in which they were given financial aid; half did not receive aid".
+```
+
+Cox regression of time to re-arrest on time constant covariates 
+
+1. Univariate 
+
+We can start by evaluating the effect of financial aid on re-arrest as this was the main intervention. However, we have to keep in mind that other factors can also potentially affect the probability of re-arrest. So we will start off by conducting invidiual univariate tests on each variable. 
+
+```{r}
+mod.allison <- coxph(Surv(week, arrest) ~ fin, data=rossi)
+mod.allison
+#extract HR and pvalue
+summary(mod.allison)$coefficients
+coefs = as.data.frame(matrix(ncol=3))
+colnames(coefs) = c("Variable", "HR", "pval")
+row = c("fin",summary(mod.allison)$coefficients[2], summary(mod.allison)$coefficients[5])
+names(row) = colnames(coefs)
+coefs[1,] = row
+```
+
+```{r}
+mod.allison <- coxph(Surv(week, arrest) ~ age, data=rossi)
+#extract HR and pvalue
+summary(mod.allison)$coefficients
+row = c("age",summary(mod.allison)$coefficients[2], summary(mod.allison)$coefficients[5])
+names(row) = colnames(coefs)
+coefs = rbind(coefs, row)
+```
+
+```{r}
+mod.allison <- coxph(Surv(week, arrest) ~ race, data=rossi)
+#extract HR and pvalue
+summary(mod.allison)$coefficients
+row = c("race",summary(mod.allison)$coefficients[2], summary(mod.allison)$coefficients[5])
+names(row) = colnames(coefs)
+coefs = rbind(coefs, row)
+```
+
+```{r}
+mod.allison <- coxph(Surv(week, arrest) ~ wexp, data=rossi)
+#extract HR and pvalue
+summary(mod.allison)$coefficients
+row = c("wexp",summary(mod.allison)$coefficients[2], summary(mod.allison)$coefficients[5])
+names(row) = colnames(coefs)
+coefs = rbind(coefs, row)
+```
+
+```{r}
+mod.allison <- coxph(Surv(week, arrest) ~ mar, data=rossi)
+#extract HR and pvalue
+summary(mod.allison)$coefficients
+row = c("mar",summary(mod.allison)$coefficients[2], summary(mod.allison)$coefficients[5])
+names(row) = colnames(coefs)
+coefs = rbind(coefs, row)
+```
+
+```{r}
+mod.allison <- coxph(Surv(week, arrest) ~ paro, data=rossi)
+#extract HR and pvalue
+summary(mod.allison)$coefficients
+row = c("paro",summary(mod.allison)$coefficients[2], summary(mod.allison)$coefficients[5])
+names(row) = colnames(coefs)
+coefs = rbind(coefs, row)
+```
+
+```{r}
+mod.allison <- coxph(Surv(week, arrest) ~ prio, data=rossi)
+#extract HR and pvalue
+summary(mod.allison)$coefficients
+row = c("prio",summary(mod.allison)$coefficients[2], summary(mod.allison)$coefficients[5])
+names(row) = colnames(coefs)
+coefs = rbind(coefs, row)
+```
+
+Review univariate results 
+```{r}
+#Which variables are significant?
+coefs = as.data.table(coefs)
+coefs = filter(coefs, pval <=0.05)
+coefs
+```
+
+
+2. Multivariate - let's keep only the variables that were signficant and see how their HRs and pvalues change when modelled together 
+
+```{r}
+head(rossi)
+#Note that this is a multivariate model 
+mod.allison <- coxph(Surv(week, arrest) ~ age + wexp + prio, data=rossi)
+mod.allison
+```
+
+We see that prior work experience is no longer significant while age and number of previous covictions are.
+
+```{r}
+summary(mod.allison)
+```
+
+"z" is the ratio of each regression coefficient to its standard error, the Wald statistic evaluates the hypothesis that the coefficient is different than 0. We can see that age and prior convictions have highly statistically significant coefficients. 
+
+exp(coef) are the multiplicative effects on the hazard, for example, holding all other covariates constant, adding one year in age reduces the hazard of re-arrest by a factor of exp(age coef) = exp(-0.05744exp) = 0.94 or by 6 percent. 
+
+Another example, prior convictions increase the hazard or re-arrest by a factor of 1.096 or 9.6%. 
+
+So we can see that when the Hazard Ratio (exp(coef)) is greater than 1, additional increases in that variable increase the risk whereas a Hazard Ratio less than 1 reduces the hazard when there is an increase in that variable. 
+
+We can now looks at the estimated distrubtion of re-arrests --> S(t) via survfit. We already saw survfit when we were plotting KM plots but it can also plot a survival curve from a Cox Model
+```{r}
+mod.allison
+ggsurvplot(survfit(mod.allison), ylim=c(0.7, 1), xlab="Weeks", ylab="Proportion Not Rearrested")
+```
+
+### Model Diagnostics 
+
+1. We are going to test whether our model meets the proportionality assumption 
+```{r}
+test.ph <- cox.zph(mod.allison)
+test.ph
+```
+
+From the output above, the test is statistically significant for each of the covariates except for number of prior arrest. The global test is also statistically significant. Therefore, we can not assume the proportional hazards for this model. The signficiant p-values indicate that the residuals of these variables are associated with time which violates one of the assumptions of survival analysis. 
+
+2. Visual representation of residuals versus time 
+```{r}
+ggcoxzph(test.ph)
+```
+
+We can see for the first two variables, the residuals seem to follow a negative correlation (age) and a positive correlation (wexpyes) whereas prio seems to have the most random distribution of residuals. 
+
+3.What if we only consider prio as our predictor? 
+Try fitting the model using only prio as a predictor and checking that the model fits the proportionality assumption 
+
+```{r}
+mod.allison <- coxph(Surv(week, arrest) ~ prio, data=rossi)
+cox.zph(mod.allison)
+```
+
+4. Let's take a look at prio...how does the distribution of re-arrest probability look like for someone with 0 prior convictions?
+```{r}
+ggsurvplot(survfit(mod.allison, newdata=data.frame(prio=0)), ylim=c(0.7, 1), xlab="Weeks", ylab="Proportion Not Rearrested")
+```
+How does the distribution of re-arrest probability look like for someone with 10 prior convictions?
+```{r}
+ggsurvplot(survfit(mod.allison, newdata=data.frame(prio=15)), xlab="Weeks", ylab="Proportion Not Rearrested")
+```
+
+5. But what if we wanted to plot a KM plot to see how the probability of re-arrests may differ between few and many prior convictions? 
+We can turn a continous variable into a categorical one, very common for things like gene expression for example. Can dichotomize into high and low using the median or mean. 
+
+```{r}
+summary(rossi$prio)
+#Let's try dichotomizing by Median
+
+#1. Add new column tagged as 0 (less than 2 prior conviction) or 1 (more than 2 prior convictions)
+rossi$prioTAG = ""
+rossi$prioTAG[rossi$prio <= 2] = 0
+rossi$prioTAG[rossi$prio > 2] = 1
+table(rossi$prioTAG)
+
+#2. Generate KM plot
+fit = survfit(Surv(week, arrest) ~ prioTAG, data=rossi)
+ggsurvplot(fit, conf.int = TRUE, ggtheme = theme_bw(), pval = TRUE, xlab="Weeks", ylab="Proportion Not Rearrested",
+          risk.table = "abs_pct", risk.table.col = "strata")
+ggsurvplot(fit, conf.int = TRUE, ggtheme = theme_bw(), pval = TRUE, xlab="Weeks", fun = "cumhaz")
+
+#3. Plot Cox model survival curve 
+coxplot <- survfit(coxph(Surv(week, arrest) ~ prioTAG, data=rossi))
+ggsurvplot(coxplot, conf.int = TRUE, ggtheme = theme_bw(), xlab="Weeks", ylab="Proportion Not Rearrested")
+ggsurvplot(coxplot, conf.int = TRUE, ggtheme = theme_bw(), xlab="Weeks", fun = "cumhaz")
+
+```
+
+###Now as an example, plot the predicted survival for a 22 year old woman and a 60 year old woman with ovarian cancer (age here is the only covariate in the model)
+```{r}
+fit <- coxph(Surv(futime, fustat) ~ age, data = ovarian)
+summary(fit)
+```
+
+```{r}
+ggsurvplot(survfit(fit, newdata=data.frame(age=60)), xlab="Years", ylab="Survival")
+ggsurvplot(survfit(fit, newdata=data.frame(age=40)), xlab="Years", ylab="Survival")
+ggsurvplot(survfit(fit, newdata=data.frame(age=20)), xlab="Years", ylab="Survival")
+```
+
+
